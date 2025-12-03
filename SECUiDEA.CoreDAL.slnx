@@ -1,3 +1,4 @@
 <Solution>
-  <Project Path="CoreDAL/CoreDAL.csproj" />
+  <Project Path="CoreDAL/SECUiDEA.CoreDAL.csproj" />
+  <Project Path="SECUiDEA.CoreDAL.TestProject/SECUiDEA.CoreDAL.TestProject.csproj" />
 </Solution>
