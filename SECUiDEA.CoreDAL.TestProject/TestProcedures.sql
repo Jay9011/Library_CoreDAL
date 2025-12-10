@@ -250,8 +250,299 @@ END
 GO
 
 -- ============================================
+
+-- 8. 트랜잭션 격리 수준 테스트용 UPDATE 프로시저
+IF OBJECT_ID('dbo.USP_TX_TEST_UPDATE', 'P') IS NOT NULL
+    DROP PROCEDURE dbo.USP_TX_TEST_UPDATE
+GO
+
+CREATE PROCEDURE [dbo].[USP_TX_TEST_UPDATE]
+    @Name NVARCHAR(100),
+    @NewName NVARCHAR(100)
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    UPDATE dbo.TBL_TX_TEST 
+    SET Name = @NewName 
+    WHERE Name = @Name
+    
+    RETURN @@ROWCOUNT
+END
+GO
+
+-- ============================================
+-- 9. TVP (Table-Valued Parameter) 테스트용 객체
+-- ============================================
+
+-- TVP용 사용자 정의 테이블 타입
+IF TYPE_ID('dbo.UserListType') IS NOT NULL
+    DROP TYPE dbo.UserListType
+GO
+
+CREATE TYPE dbo.UserListType AS TABLE (
+    UserId INT,
+    UserName NVARCHAR(100)
+)
+GO
+
+-- TVP 테스트용 테이블
+IF OBJECT_ID('dbo.TBL_TVP_TEST', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.TBL_TVP_TEST (
+        UserId INT PRIMARY KEY,
+        UserName NVARCHAR(100) NOT NULL,
+        CreatedAt DATETIME DEFAULT GETDATE()
+    )
+END
+GO
+
+-- TVP INSERT 프로시저
+IF OBJECT_ID('dbo.USP_TVP_INSERT_USERS', 'P') IS NOT NULL
+    DROP PROCEDURE dbo.USP_TVP_INSERT_USERS
+GO
+
+CREATE PROCEDURE [dbo].[USP_TVP_INSERT_USERS]
+    @Users dbo.UserListType READONLY
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    INSERT INTO dbo.TBL_TVP_TEST (UserId, UserName)
+    SELECT UserId, UserName FROM @Users
+    
+    RETURN @@ROWCOUNT
+END
+GO
+
+-- TVP SELECT 프로시저
+IF OBJECT_ID('dbo.USP_TVP_SELECT_USERS', 'P') IS NOT NULL
+    DROP PROCEDURE dbo.USP_TVP_SELECT_USERS
+GO
+
+CREATE PROCEDURE [dbo].[USP_TVP_SELECT_USERS]
+    @NamePrefix NVARCHAR(100)
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    SELECT UserId, UserName, CreatedAt
+    FROM dbo.TBL_TVP_TEST
+    WHERE UserName LIKE @NamePrefix + '%'
+    
+    RETURN @@ROWCOUNT
+END
+GO
+
+-- TVP DELETE 프로시저
+IF OBJECT_ID('dbo.USP_TVP_DELETE_USERS', 'P') IS NOT NULL
+    DROP PROCEDURE dbo.USP_TVP_DELETE_USERS
+GO
+
+CREATE PROCEDURE [dbo].[USP_TVP_DELETE_USERS]
+    @NamePrefix NVARCHAR(100)
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    DELETE FROM dbo.TBL_TVP_TEST
+    WHERE UserName LIKE @NamePrefix + '%'
+    
+    RETURN @@ROWCOUNT
+END
+GO
+
+-- TVP 단건 INSERT 프로시저 (테스트 데이터 준비용)
+IF OBJECT_ID('dbo.USP_TVP_TEST_INSERT', 'P') IS NOT NULL
+    DROP PROCEDURE dbo.USP_TVP_TEST_INSERT
+GO
+
+CREATE PROCEDURE [dbo].[USP_TVP_TEST_INSERT]
+    @Id INT,
+    @Name NVARCHAR(100)
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    INSERT INTO dbo.TBL_TVP_TEST (UserId, UserName)
+    VALUES (@Id, @Name)
+    
+    RETURN 0
+END
+GO
+
+-- TVP UPDATE 프로시저 (각 행별 결과 반환)
+IF OBJECT_ID('dbo.USP_TVP_UPDATE_USERS_WITH_RESULT', 'P') IS NOT NULL
+    DROP PROCEDURE dbo.USP_TVP_UPDATE_USERS_WITH_RESULT
+GO
+
+CREATE PROCEDURE [dbo].[USP_TVP_UPDATE_USERS_WITH_RESULT]
+    @Users dbo.UserListType READONLY
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    -- 결과 테이블
+    DECLARE @Results TABLE (
+        UserId INT,
+        Success BIT,
+        ErrorMessage NVARCHAR(500)
+    )
+    
+    -- 각 행을 처리하면서 결과 기록
+    DECLARE @UserId INT, @UserName NVARCHAR(100)
+    DECLARE user_cursor CURSOR LOCAL FAST_FORWARD FOR 
+        SELECT UserId, UserName FROM @Users
+    
+    OPEN user_cursor
+    FETCH NEXT FROM user_cursor INTO @UserId, @UserName
+    
+    WHILE @@FETCH_STATUS = 0
+    BEGIN
+        BEGIN TRY
+            -- UPDATE 실행
+            IF EXISTS (SELECT 1 FROM dbo.TBL_TVP_TEST WHERE UserId = @UserId)
+            BEGIN
+                UPDATE dbo.TBL_TVP_TEST 
+                SET UserName = @UserName 
+                WHERE UserId = @UserId
+                
+                INSERT INTO @Results VALUES (@UserId, 1, NULL)
+            END
+            ELSE
+            BEGIN
+                INSERT INTO @Results VALUES (@UserId, 0, N'사용자를 찾을 수 없습니다.')
+            END
+        END TRY
+        BEGIN CATCH
+            INSERT INTO @Results VALUES (@UserId, 0, ERROR_MESSAGE())
+        END CATCH
+        
+        FETCH NEXT FROM user_cursor INTO @UserId, @UserName
+    END
+    
+    CLOSE user_cursor
+    DEALLOCATE user_cursor
+    
+    -- 결과 반환
+    SELECT UserId, Success, ErrorMessage FROM @Results
+    
+    RETURN 0
+END
+GO
+
+-- ============================================
+-- 10. 혼합 Attribute 테스트용 프로시저 (DbParameter + TvpColumn)
+-- ============================================
+
+-- 혼합 테스트용 테이블
+IF OBJECT_ID('dbo.TBL_MIXED_TEST', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.TBL_MIXED_TEST (
+        SEQ INT IDENTITY(1,1) PRIMARY KEY,
+        ID NVARCHAR(50) UNIQUE NOT NULL,
+        PW NVARCHAR(100) NOT NULL,
+        NAME NVARCHAR(100) NOT NULL,
+        CreatedAt DATETIME DEFAULT GETDATE()
+    )
+END
+GO
+
+-- 혼합 테스트용 UPDATE TVP 타입
+IF TYPE_ID('dbo.UserUpdateType') IS NOT NULL
+    DROP TYPE dbo.UserUpdateType
+GO
+
+CREATE TYPE dbo.UserUpdateType AS TABLE (
+    ID NVARCHAR(50),
+    NAME NVARCHAR(100)
+)
+GO
+
+-- 단건 INSERT 프로시저 (DbParameter 사용)
+IF OBJECT_ID('dbo.USP_MIXED_INSERT_USER', 'P') IS NOT NULL
+    DROP PROCEDURE dbo.USP_MIXED_INSERT_USER
+GO
+
+CREATE PROCEDURE [dbo].[USP_MIXED_INSERT_USER]
+    @SEQ INT = NULL,  -- IDENTITY이므로 무시
+    @ID NVARCHAR(50),
+    @PW NVARCHAR(100),
+    @NAME NVARCHAR(100)
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    INSERT INTO dbo.TBL_MIXED_TEST (ID, PW, NAME)
+    VALUES (@ID, @PW, @NAME)
+    
+    RETURN SCOPE_IDENTITY()
+END
+GO
+
+-- TVP UPDATE 프로시저 (TvpColumn 사용)
+IF OBJECT_ID('dbo.USP_MIXED_UPDATE_USERS', 'P') IS NOT NULL
+    DROP PROCEDURE dbo.USP_MIXED_UPDATE_USERS
+GO
+
+CREATE PROCEDURE [dbo].[USP_MIXED_UPDATE_USERS]
+    @Users dbo.UserUpdateType READONLY
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    UPDATE t
+    SET t.NAME = u.NAME
+    FROM dbo.TBL_MIXED_TEST t
+    INNER JOIN @Users u ON t.ID = u.ID
+    
+    RETURN @@ROWCOUNT
+END
+GO
+
+-- SELECT 프로시저
+IF OBJECT_ID('dbo.USP_MIXED_SELECT_USER', 'P') IS NOT NULL
+    DROP PROCEDURE dbo.USP_MIXED_SELECT_USER
+GO
+
+CREATE PROCEDURE [dbo].[USP_MIXED_SELECT_USER]
+    @ID NVARCHAR(50)
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    SELECT SEQ, ID, PW, NAME, CreatedAt
+    FROM dbo.TBL_MIXED_TEST
+    WHERE ID = @ID
+    
+    RETURN @@ROWCOUNT
+END
+GO
+
+-- DELETE 프로시저
+IF OBJECT_ID('dbo.USP_MIXED_DELETE_USER', 'P') IS NOT NULL
+    DROP PROCEDURE dbo.USP_MIXED_DELETE_USER
+GO
+
+CREATE PROCEDURE [dbo].[USP_MIXED_DELETE_USER]
+    @ID NVARCHAR(50)
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    DELETE FROM dbo.TBL_MIXED_TEST WHERE ID = @ID
+    
+    RETURN @@ROWCOUNT
+END
+GO
+
+-- ============================================
 -- 테스트 프로시저 생성 완료
 -- ============================================
 PRINT '모든 테스트 프로시저가 생성되었습니다.'
+PRINT '- 기본 테스트 프로시저: 7개'
+PRINT '- 트랜잭션 격리 수준 테스트 프로시저: 1개'
+PRINT '- TVP 테스트 프로시저: 7개'
+PRINT '- 혼합 Attribute 테스트 프로시저: 4개'
 GO
 
