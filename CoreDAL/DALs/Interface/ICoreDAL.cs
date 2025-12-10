@@ -11,6 +11,24 @@ namespace CoreDAL.DALs.Interface
     /// </summary>
     public interface ICoreDAL
     {
+        #region Transaction
+
+        /// <summary>
+        /// 트랜잭션 컨텍스트 생성 (여러 프로시저를 하나의 트랜잭션으로 묶기)
+        /// </summary>
+        /// <param name="connectionString">DB 연결 문자열</param>
+        /// <returns>트랜잭션 컨텍스트</returns>
+        ITransactionContext BeginTransaction(string connectionString);
+
+        /// <summary>
+        /// 트랜잭션 컨텍스트 생성 (여러 프로시저를 하나의 트랜잭션으로 묶기)
+        /// </summary>
+        /// <param name="dbSetup">DB 설정 파일</param>
+        /// <returns>트랜잭션 컨텍스트</returns>
+        ITransactionContext BeginTransaction(IDatabaseSetup dbSetup);
+
+        #endregion
+
         /// <summary>
         /// 연결 테스트
         /// </summary>

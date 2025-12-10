@@ -160,6 +160,96 @@ END
 GO
 
 -- ============================================
+
+-- 7. 트랜잭션 테스트용 테이블 및 프로시저
+-- 트랜잭션 롤백 테스트를 위한 임시 테이블 및 INSERT 프로시저
+
+-- 테스트용 임시 테이블 생성 (존재하지 않을 경우)
+IF OBJECT_ID('dbo.TBL_TX_TEST', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.TBL_TX_TEST (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        Name NVARCHAR(100) NOT NULL,
+        CreatedAt DATETIME DEFAULT GETDATE()
+    )
+END
+GO
+
+-- 트랜잭션 테스트용 INSERT 프로시저
+IF OBJECT_ID('dbo.USP_TX_TEST_INSERT', 'P') IS NOT NULL
+    DROP PROCEDURE dbo.USP_TX_TEST_INSERT
+GO
+
+CREATE PROCEDURE [dbo].[USP_TX_TEST_INSERT]
+    @Name NVARCHAR(100)
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    INSERT INTO dbo.TBL_TX_TEST (Name) VALUES (@Name)
+    
+    RETURN 0
+END
+GO
+
+-- 트랜잭션 테스트용 SELECT 프로시저 (데이터 확인용)
+IF OBJECT_ID('dbo.USP_TX_TEST_SELECT', 'P') IS NOT NULL
+    DROP PROCEDURE dbo.USP_TX_TEST_SELECT
+GO
+
+CREATE PROCEDURE [dbo].[USP_TX_TEST_SELECT]
+    @Name NVARCHAR(100)
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    SELECT Id, Name, CreatedAt 
+    FROM dbo.TBL_TX_TEST 
+    WHERE Name = @Name
+    
+    RETURN 0
+END
+GO
+
+-- 트랜잭션 테스트용 DELETE 프로시저 (정리용)
+IF OBJECT_ID('dbo.USP_TX_TEST_DELETE', 'P') IS NOT NULL
+    DROP PROCEDURE dbo.USP_TX_TEST_DELETE
+GO
+
+CREATE PROCEDURE [dbo].[USP_TX_TEST_DELETE]
+    @Name NVARCHAR(100)
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    DELETE FROM dbo.TBL_TX_TEST WHERE Name = @Name
+    
+    RETURN @@ROWCOUNT
+END
+GO
+
+-- 트랜잭션 테스트용 실패 프로시저 (의도적으로 에러 발생)
+IF OBJECT_ID('dbo.USP_TX_TEST_FAIL', 'P') IS NOT NULL
+    DROP PROCEDURE dbo.USP_TX_TEST_FAIL
+GO
+
+CREATE PROCEDURE [dbo].[USP_TX_TEST_FAIL]
+    @ShouldFail BIT = 1
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    IF @ShouldFail = 1
+    BEGIN
+        RAISERROR('Intentional error for transaction rollback test', 16, 1)
+        RETURN -1
+    END
+    
+    RETURN 0
+END
+GO
+
+-- ============================================
 -- 테스트 프로시저 생성 완료
 -- ============================================
 PRINT '모든 테스트 프로시저가 생성되었습니다.'
