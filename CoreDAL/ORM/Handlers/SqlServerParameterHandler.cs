@@ -84,7 +84,8 @@ namespace CoreDAL.ORM.Handlers
                 {
                     var tmpCommand = new SqlCommand(sqlCommand.CommandText, connection as SqlConnection)
                     {
-                        CommandType = CommandType.StoredProcedure
+                        CommandType = CommandType.StoredProcedure,
+                        Transaction = sqlCommand.Transaction
                     };
 
                     // 프로시저의 파라미터 정보를 가져옴
