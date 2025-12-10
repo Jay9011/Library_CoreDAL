@@ -41,34 +41,63 @@ namespace CoreDAL.ORM.Extensions
 
         /// <summary>
         /// 타입 정보 생성 (최초 1회만 실행)
+        /// [TvpColumn] 어트리뷰트가 있는 프로퍼티만 TVP 컬럼으로 포함됩니다.
         /// </summary>
         private static TvpTypeInfo CreateTypeInfo(Type type)
         {
-            var properties = type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            var propertiesWithAttribute = type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
                 .Where(p => p.CanRead)
                 .Select(p => new
                 {
                     Property = p,
                     Attribute = p.GetCustomAttribute<TvpColumnAttribute>()
                 })
-                .Select((x, index) => new TvpColumnInfo
-                {
-                    PropertyName = x.Property.Name,
-                    ColumnName = x.Attribute?.Name ?? x.Property.Name,
-                    ColumnType = GetDataColumnType(x.Property.PropertyType),
-                    Order = x.Attribute?.Order ?? index,
-                    MaxLength = x.Attribute?.MaxLength ?? -1,
-                    IsNullable = x.Attribute?.IsNullable ?? IsNullableType(x.Property.PropertyType),
-                    Getter = CreateGetter(type, x.Property),
-                    PropertyType = x.Property.PropertyType
-                })
-                .OrderBy(c => c.Order)
+                .Where(x => x.Attribute != null)  // [TvpColumn]이 있는 프로퍼티만 포함
                 .ToList();
+
+            // [TvpColumn]이 하나도 없으면 모든 프로퍼티를 포함 (하위 호환성)
+            List<TvpColumnInfo> columns;
+            if (propertiesWithAttribute.Any())
+            {
+                // [TvpColumn]이 있는 프로퍼티만 사용
+                columns = propertiesWithAttribute
+                    .Select((x, index) => new TvpColumnInfo
+                    {
+                        PropertyName = x.Property.Name,
+                        ColumnName = x.Attribute.Name ?? x.Property.Name,
+                        ColumnType = GetDataColumnType(x.Property.PropertyType),
+                        Order = x.Attribute.Order != int.MaxValue ? x.Attribute.Order : index,
+                        MaxLength = x.Attribute.MaxLength,
+                        IsNullable = x.Attribute.IsNullable,
+                        Getter = CreateGetter(type, x.Property),
+                        PropertyType = x.Property.PropertyType
+                    })
+                    .OrderBy(c => c.Order)
+                    .ToList();
+            }
+            else
+            {
+                // [TvpColumn]이 없으면 모든 public 프로퍼티 사용 (하위 호환성)
+                columns = type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                    .Where(p => p.CanRead)
+                    .Select((p, index) => new TvpColumnInfo
+                    {
+                        PropertyName = p.Name,
+                        ColumnName = p.Name,
+                        ColumnType = GetDataColumnType(p.PropertyType),
+                        Order = index,
+                        MaxLength = -1,
+                        IsNullable = IsNullableType(p.PropertyType),
+                        Getter = CreateGetter(type, p),
+                        PropertyType = p.PropertyType
+                    })
+                    .ToList();
+            }
 
             return new TvpTypeInfo
             {
                 Type = type,
-                Columns = properties
+                Columns = columns
             };
         }
 
