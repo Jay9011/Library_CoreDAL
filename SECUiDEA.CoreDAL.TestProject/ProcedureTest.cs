@@ -418,5 +418,262 @@ namespace SECUiDEA.CoreDAL.TestProject
         }
 
         #endregion
+
+        #region 트랜잭션 테스트
+
+        /// <summary>
+        /// 트랜잭션 커밋 테스트 - 정상적으로 커밋되면 데이터가 저장됨
+        /// </summary>
+        [Fact]
+        public async Task Transaction_Commit_ShouldPersistData()
+        {
+            // Arrange
+            var connectionInfo = CreateTestConnectionInfo();
+            var dal = GetTestDAL();
+            var testName = $"TX_COMMIT_TEST_{Guid.NewGuid():N}";
+
+            try
+            {
+                // Act - 트랜잭션으로 INSERT 후 커밋
+                using (var tx = dal.BeginTransaction(connectionInfo.ToConnectionString()))
+                {
+                    var insertParams = new Dictionary<string, object> { { "Name", testName } };
+                    var result = tx.ExecuteProcedure("USP_TX_TEST_INSERT", insertParams, isReturn: true);
+
+                    Assert.True(result.IsSuccess, $"INSERT 실패: {result.Message}");
+
+                    tx.Commit();
+                }
+
+                // Assert - 트랜잭션 외부에서 데이터 확인
+                var selectParams = new Dictionary<string, object> { { "Name", testName } };
+                var selectResult = await dal.ExecuteProcedureAsync(
+                    connectionInfo.ToConnectionString(),
+                    "USP_TX_TEST_SELECT",
+                    selectParams,
+                    isReturn: true
+                );
+
+                Assert.True(selectResult.IsSuccess);
+                Assert.NotNull(selectResult.DataSet);
+                Assert.True(selectResult.DataSet.Tables.Count > 0);
+                Assert.Equal(1, selectResult.DataSet.Tables[0].Rows.Count);
+
+                _outputHelper.WriteLine($"트랜잭션 커밋 테스트 성공: {testName} 데이터가 정상 저장됨");
+            }
+            finally
+            {
+                // Cleanup
+                var deleteParams = new Dictionary<string, object> { { "Name", testName } };
+                await dal.ExecuteProcedureAsync(connectionInfo.ToConnectionString(), "USP_TX_TEST_DELETE", deleteParams);
+            }
+        }
+
+        /// <summary>
+        /// 트랜잭션 롤백 테스트 - Rollback 호출 시 데이터가 저장되지 않음
+        /// </summary>
+        [Fact]
+        public async Task Transaction_Rollback_ShouldNotPersistData()
+        {
+            // Arrange
+            var connectionInfo = CreateTestConnectionInfo();
+            var dal = GetTestDAL();
+            var testName = $"TX_ROLLBACK_TEST_{Guid.NewGuid():N}";
+
+            // Act - 트랜잭션으로 INSERT 후 롤백
+            using (var tx = dal.BeginTransaction(connectionInfo.ToConnectionString()))
+            {
+                var insertParams = new Dictionary<string, object> { { "Name", testName } };
+                var result = tx.ExecuteProcedure("USP_TX_TEST_INSERT", insertParams, isReturn: true);
+
+                Assert.True(result.IsSuccess, $"INSERT 실패: {result.Message}");
+
+                tx.Rollback();
+            }
+
+            // Assert - 트랜잭션 외부에서 데이터 확인 (없어야 함)
+            var selectParams = new Dictionary<string, object> { { "Name", testName } };
+            var selectResult = await dal.ExecuteProcedureAsync(
+                connectionInfo.ToConnectionString(),
+                "USP_TX_TEST_SELECT",
+                selectParams,
+                isReturn: true
+            );
+
+            Assert.True(selectResult.IsSuccess);
+            // 롤백했으므로 데이터가 없어야 함
+            if (selectResult.DataSet != null && selectResult.DataSet.Tables.Count > 0)
+            {
+                Assert.Equal(0, selectResult.DataSet.Tables[0].Rows.Count);
+            }
+
+            _outputHelper.WriteLine($"트랜잭션 롤백 테스트 성공: {testName} 데이터가 롤백됨");
+        }
+
+        /// <summary>
+        /// 트랜잭션 자동 롤백 테스트 - Dispose 시 커밋되지 않았으면 자동 롤백
+        /// </summary>
+        [Fact]
+        public async Task Transaction_AutoRollback_OnDisposeWithoutCommit()
+        {
+            // Arrange
+            var connectionInfo = CreateTestConnectionInfo();
+            var dal = GetTestDAL();
+            var testName = $"TX_AUTO_ROLLBACK_TEST_{Guid.NewGuid():N}";
+
+            // Act - 트랜잭션으로 INSERT 후 Commit/Rollback 호출 없이 Dispose
+            using (var tx = dal.BeginTransaction(connectionInfo.ToConnectionString()))
+            {
+                var insertParams = new Dictionary<string, object> { { "Name", testName } };
+                var result = tx.ExecuteProcedure("USP_TX_TEST_INSERT", insertParams, isReturn: true);
+
+                Assert.True(result.IsSuccess, $"INSERT 실패: {result.Message}");
+
+                // Commit이나 Rollback을 호출하지 않음 - Dispose에서 자동 롤백 예상
+            }
+
+            // Assert - 트랜잭션 외부에서 데이터 확인 (없어야 함)
+            var selectParams = new Dictionary<string, object> { { "Name", testName } };
+            var selectResult = await dal.ExecuteProcedureAsync(
+                connectionInfo.ToConnectionString(),
+                "USP_TX_TEST_SELECT",
+                selectParams,
+                isReturn: true
+            );
+
+            Assert.True(selectResult.IsSuccess);
+            // 자동 롤백했으므로 데이터가 없어야 함
+            if (selectResult.DataSet != null && selectResult.DataSet.Tables.Count > 0)
+            {
+                Assert.Equal(0, selectResult.DataSet.Tables[0].Rows.Count);
+            }
+
+            _outputHelper.WriteLine($"트랜잭션 자동 롤백 테스트 성공: Dispose 시 자동 롤백됨");
+        }
+
+        /// <summary>
+        /// 다중 프로시저 트랜잭션 롤백 테스트 - 여러 INSERT 후 예외 발생 시 모두 롤백
+        /// </summary>
+        [Fact]
+        public async Task Transaction_MultipleInserts_RollbackOnError()
+        {
+            // Arrange
+            var connectionInfo = CreateTestConnectionInfo();
+            var dal = GetTestDAL();
+            var testName1 = $"TX_MULTI_1_{Guid.NewGuid():N}";
+            var testName2 = $"TX_MULTI_2_{Guid.NewGuid():N}";
+            var testName3 = $"TX_MULTI_3_{Guid.NewGuid():N}";
+
+            // Act - 여러 INSERT 실행 후 에러 발생 → 롤백
+            try
+            {
+                using (var tx = dal.BeginTransaction(connectionInfo.ToConnectionString()))
+                {
+                    try
+                    {
+                        // 첫 번째 INSERT
+                        var result1 = tx.ExecuteProcedure("USP_TX_TEST_INSERT",
+                            new Dictionary<string, object> { { "Name", testName1 } });
+                        Assert.True(result1.IsSuccess);
+
+                        // 두 번째 INSERT
+                        var result2 = tx.ExecuteProcedure("USP_TX_TEST_INSERT",
+                            new Dictionary<string, object> { { "Name", testName2 } });
+                        Assert.True(result2.IsSuccess);
+
+                        // 세 번째 INSERT
+                        var result3 = tx.ExecuteProcedure("USP_TX_TEST_INSERT",
+                            new Dictionary<string, object> { { "Name", testName3 } });
+                        Assert.True(result3.IsSuccess);
+
+                        // 의도적으로 에러 발생 시키는 프로시저 호출
+                        var failResult = tx.ExecuteProcedure("USP_TX_TEST_FAIL",
+                            new Dictionary<string, object> { { "ShouldFail", 1 } });
+
+                        // 여기까지 오면 안됨 (위에서 예외 발생해야 함)
+                        tx.Commit();
+                    }
+                    catch (Exception ex)
+                    {
+                        _outputHelper.WriteLine($"예상된 예외 발생: {ex.Message}");
+                        tx.Rollback();
+                        throw;
+                    }
+                }
+            }
+            catch
+            {
+                // 예외는 예상된 것이므로 무시
+            }
+
+            // Assert - 모든 데이터가 롤백되어야 함
+            foreach (var testName in new[] { testName1, testName2, testName3 })
+            {
+                var selectParams = new Dictionary<string, object> { { "Name", testName } };
+                var selectResult = await dal.ExecuteProcedureAsync(
+                    connectionInfo.ToConnectionString(),
+                    "USP_TX_TEST_SELECT",
+                    selectParams,
+                    isReturn: true
+                );
+
+                if (selectResult.DataSet != null && selectResult.DataSet.Tables.Count > 0)
+                {
+                    Assert.Equal(0, selectResult.DataSet.Tables[0].Rows.Count);
+                }
+            }
+
+            _outputHelper.WriteLine($"다중 INSERT 롤백 테스트 성공: 모든 데이터가 롤백됨");
+        }
+
+        /// <summary>
+        /// 비동기 트랜잭션 테스트
+        /// </summary>
+        [Fact]
+        public async Task Transaction_AsyncExecute_ShouldWork()
+        {
+            // Arrange
+            var connectionInfo = CreateTestConnectionInfo();
+            var dal = GetTestDAL();
+            var testName = $"TX_ASYNC_TEST_{Guid.NewGuid():N}";
+
+            try
+            {
+                // Act - 비동기로 트랜잭션 실행
+                using (var tx = dal.BeginTransaction(connectionInfo.ToConnectionString()))
+                {
+                    var insertParams = new Dictionary<string, object> { { "Name", testName } };
+                    var result = await tx.ExecuteProcedureAsync("USP_TX_TEST_INSERT", insertParams, isReturn: true);
+
+                    Assert.True(result.IsSuccess, $"비동기 INSERT 실패: {result.Message}");
+
+                    tx.Commit();
+                }
+
+                // Assert - 데이터 확인
+                var selectParams = new Dictionary<string, object> { { "Name", testName } };
+                var selectResult = await dal.ExecuteProcedureAsync(
+                    connectionInfo.ToConnectionString(),
+                    "USP_TX_TEST_SELECT",
+                    selectParams,
+                    isReturn: true
+                );
+
+                Assert.True(selectResult.IsSuccess);
+                Assert.NotNull(selectResult.DataSet);
+                Assert.True(selectResult.DataSet.Tables.Count > 0);
+                Assert.Equal(1, selectResult.DataSet.Tables[0].Rows.Count);
+
+                _outputHelper.WriteLine($"비동기 트랜잭션 테스트 성공");
+            }
+            finally
+            {
+                // Cleanup
+                var deleteParams = new Dictionary<string, object> { { "Name", testName } };
+                await dal.ExecuteProcedureAsync(connectionInfo.ToConnectionString(), "USP_TX_TEST_DELETE", deleteParams);
+            }
+        }
+
+        #endregion
     }
 }

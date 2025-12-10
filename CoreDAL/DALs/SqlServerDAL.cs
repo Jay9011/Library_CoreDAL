@@ -30,6 +30,33 @@ namespace CoreDAL.DALs
 
         #endregion
 
+        #region Transaction
+
+        /// <summary>
+        /// 트랜잭션 컨텍스트 생성 (여러 프로시저를 하나의 트랜잭션으로 묶기)
+        /// </summary>
+        /// <param name="connectionString">DB 연결 문자열</param>
+        /// <returns>트랜잭션 컨텍스트</returns>
+        public ITransactionContext BeginTransaction(string connectionString)
+        {
+            return new SqlServerTransactionContext(connectionString, _parameterProcessor, _timeout);
+        }
+
+        /// <summary>
+        /// 트랜잭션 컨텍스트 생성 (여러 프로시저를 하나의 트랜잭션으로 묶기)
+        /// </summary>
+        /// <param name="dbSetup">DB 설정 파일</param>
+        /// <returns>트랜잭션 컨텍스트</returns>
+        public ITransactionContext BeginTransaction(IDatabaseSetup dbSetup)
+        {
+            if (dbSetup == null)
+                throw new ArgumentNullException(nameof(dbSetup));
+
+            return BeginTransaction(dbSetup.GetConnectionString());
+        }
+
+        #endregion
+
         public async Task<SQLResult> TestConnectionAsync(IDatabaseSetup dbSetup)
         {
             if (dbSetup == null)

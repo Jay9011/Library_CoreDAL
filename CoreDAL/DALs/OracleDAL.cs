@@ -31,6 +31,32 @@ namespace CoreDAL.DALs
 
         #endregion
 
+        #region Transaction
+
+        /// <summary>
+        /// 트랜잭션 컨텍스트 생성 (Oracle용 - 미구현)
+        /// </summary>
+        /// <param name="connectionString">DB 연결 문자열</param>
+        /// <returns>트랜잭션 컨텍스트</returns>
+        /// <exception cref="NotImplementedException">Oracle 트랜잭션은 아직 미구현</exception>
+        public ITransactionContext BeginTransaction(string connectionString)
+        {
+            throw new NotImplementedException("Oracle transaction support is not yet implemented.");
+        }
+
+        /// <summary>
+        /// 트랜잭션 컨텍스트 생성 (Oracle용 - 미구현)
+        /// </summary>
+        /// <param name="dbSetup">DB 설정 파일</param>
+        /// <returns>트랜잭션 컨텍스트</returns>
+        /// <exception cref="NotImplementedException">Oracle 트랜잭션은 아직 미구현</exception>
+        public ITransactionContext BeginTransaction(IDatabaseSetup dbSetup)
+        {
+            throw new NotImplementedException("Oracle transaction support is not yet implemented.");
+        }
+
+        #endregion
+
         public async Task<SQLResult> TestConnectionAsync(IDatabaseSetup dbSetup)
         {
             if (dbSetup == null)
