@@ -19,6 +19,7 @@ namespace CoreDAL.DALs
         private readonly SqlTransaction _transaction;
         private readonly DatabaseParameterProcessor _parameterProcessor;
         private readonly int _timeout;
+        private readonly IsolationLevel _isolationLevel;
 
         private bool _isCommitted = false;
         private bool _isRolledBack = false;
@@ -30,14 +31,24 @@ namespace CoreDAL.DALs
         /// <param name="connectionString">연결 문자열</param>
         /// <param name="parameterProcessor">파라미터 프로세서</param>
         /// <param name="timeout">명령 타임아웃 (초)</param>
-        public SqlServerTransactionContext(string connectionString, DatabaseParameterProcessor parameterProcessor, int timeout = 600)
+        /// <param name="isolationLevel">트랜잭션 격리 수준 (기본값: ReadCommitted)</param>
+        /// <remarks>
+        /// 격리 수준 선택 가이드:
+        /// - ReadUncommitted: SELECT 전용 쿼리에 적합 (Lock 없음, Dirty Read 허용)
+        /// - ReadCommitted: 기본값, 일반적인 트랜잭션에 적합 (Shared Lock 사용)
+        /// - RepeatableRead: 동일 데이터 반복 읽기가 필요한 경우
+        /// - Serializable: 가장 강력한 격리, 동시성 낮음
+        /// - Snapshot: MVCC 기반, Lock 없이 일관된 읽기 (DB에서 ALLOW_SNAPSHOT_ISOLATION 설정 필요)
+        /// </remarks>
+        public SqlServerTransactionContext(string connectionString, DatabaseParameterProcessor parameterProcessor, int timeout = 600, IsolationLevel isolationLevel = IsolationLevel.ReadCommitted)
         {
             _parameterProcessor = parameterProcessor ?? throw new ArgumentNullException(nameof(parameterProcessor));
             _timeout = timeout;
+            _isolationLevel = isolationLevel;
 
             _connection = new SqlConnection(connectionString);
             _connection.Open();
-            _transaction = _connection.BeginTransaction();
+            _transaction = _connection.BeginTransaction(_isolationLevel);
         }
 
         /// <summary>
