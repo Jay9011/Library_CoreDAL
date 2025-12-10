@@ -19,6 +19,7 @@ MSSQL, Oracle 등 여러 종류의 DB에 접근할 수 있으며, 동시에 여�
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.SqlClient" Version="6.1.3" />
+    <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="9.0.4" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
     <PackageReference Include="Oracle.ManagedDataAccess.Core" Version="2.19.290" />
   </ItemGroup>
