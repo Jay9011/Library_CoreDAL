@@ -1,0 +1,306 @@
+using System;
+using System.Collections.Generic;
+using System.Data;
+using System.Linq;
+using System.Reflection;
+
+namespace CoreDAL.ORM.Extensions
+{
+    /// <summary>
+    /// DataTable 관련 확장 메서드
+    /// TVP(Table-Valued Parameter) 사용을 위한 DataTable 생성 및 데이터 추가 기능 제공
+    /// </summary>
+    public static class DataTableExtensions
+    {
+        #region IEnumerable<T> → DataTable 변환
+
+        /// <summary>
+        /// 컬렉션을 DataTable로 변환합니다.
+        /// TvpColumnAttribute가 있으면 해당 설정을 사용하고, 없으면 프로퍼티 이름을 컬럼명으로 사용합니다.
+        /// </summary>
+        /// <typeparam name="T">아이템 타입</typeparam>
+        /// <param name="items">변환할 컬렉션</param>
+        /// <returns>생성된 DataTable</returns>
+        /// <example>
+        /// <code>
+        /// var users = new List&lt;UserTvpItem&gt; 
+        /// {
+        ///     new UserTvpItem { Id = 1, Name = "홍길동" },
+        ///     new UserTvpItem { Id = 2, Name = "김철수" }
+        /// };
+        /// 
+        /// DataTable table = users.ToDataTable();
+        /// </code>
+        /// </example>
+        public static DataTable ToDataTable<T>(this IEnumerable<T> items) where T : class
+        {
+            if (items == null)
+                throw new ArgumentNullException(nameof(items));
+
+            var typeInfo = TvpTypeCache.GetTypeInfo<T>();
+            var table = typeInfo.CreateDataTable();
+
+            foreach (var item in items)
+            {
+                if (item != null)
+                {
+                    var values = typeInfo.GetValues(item);
+                    table.Rows.Add(values);
+                }
+            }
+
+            return table;
+        }
+
+        /// <summary>
+        /// 컬렉션을 DataTable로 변환합니다 (테이블 이름 지정)
+        /// </summary>
+        /// <typeparam name="T">아이템 타입</typeparam>
+        /// <param name="items">변환할 컬렉션</param>
+        /// <param name="tableName">DataTable 이름</param>
+        /// <returns>생성된 DataTable</returns>
+        public static DataTable ToDataTable<T>(this IEnumerable<T> items, string tableName) where T : class
+        {
+            var table = items.ToDataTable();
+            table.TableName = tableName;
+            return table;
+        }
+
+        #endregion
+
+        #region DataTable에 행 추가
+
+        /// <summary>
+        /// 기존 DataTable에 컬렉션의 데이터를 추가합니다.
+        /// DataTable의 컬럼명과 객체의 프로퍼티명(또는 TvpColumnAttribute.Name)을 매칭하여 값을 설정합니다.
+        /// </summary>
+        /// <typeparam name="T">아이템 타입</typeparam>
+        /// <param name="table">대상 DataTable</param>
+        /// <param name="items">추가할 컬렉션</param>
+        /// <returns>추가된 행 수</returns>
+        /// <example>
+        /// <code>
+        /// // 수동으로 스키마 생성
+        /// var table = new DataTable();
+        /// table.Columns.Add("UserId", typeof(int));
+        /// table.Columns.Add("UserName", typeof(string));
+        /// 
+        /// // 확장 메서드로 데이터 추가
+        /// var users = new List&lt;UserTvpItem&gt; { ... };
+        /// table.AddRows(users);
+        /// </code>
+        /// </example>
+        public static int AddRows<T>(this DataTable table, IEnumerable<T> items) where T : class
+        {
+            if (table == null)
+                throw new ArgumentNullException(nameof(table));
+
+            if (items == null)
+                throw new ArgumentNullException(nameof(items));
+
+            var typeInfo = TvpTypeCache.GetTypeInfo<T>();
+
+            // DataTable 컬럼과 타입 프로퍼티 매핑 생성
+            var columnMapping = CreateColumnMapping(table, typeInfo);
+
+            int addedCount = 0;
+            foreach (var item in items)
+            {
+                if (item != null)
+                {
+                    var row = table.NewRow();
+
+                    foreach (var mapping in columnMapping)
+                    {
+                        var value = mapping.Getter(item);
+                        row[mapping.ColumnIndex] = value ?? DBNull.Value;
+                    }
+
+                    table.Rows.Add(row);
+                    addedCount++;
+                }
+            }
+
+            return addedCount;
+        }
+
+        /// <summary>
+        /// 기존 DataTable에 단일 객체를 추가합니다.
+        /// </summary>
+        /// <typeparam name="T">아이템 타입</typeparam>
+        /// <param name="table">대상 DataTable</param>
+        /// <param name="item">추가할 객체</param>
+        /// <returns>추가 성공 여부</returns>
+        public static bool AddRow<T>(this DataTable table, T item) where T : class
+        {
+            if (table == null)
+                throw new ArgumentNullException(nameof(table));
+
+            if (item == null)
+                return false;
+
+            var typeInfo = TvpTypeCache.GetTypeInfo<T>();
+            var columnMapping = CreateColumnMapping(table, typeInfo);
+
+            var row = table.NewRow();
+
+            foreach (var mapping in columnMapping)
+            {
+                var value = mapping.Getter(item);
+                row[mapping.ColumnIndex] = value ?? DBNull.Value;
+            }
+
+            table.Rows.Add(row);
+            return true;
+        }
+
+        #endregion
+
+        #region 스키마 생성
+
+        /// <summary>
+        /// 타입에서 DataTable 스키마만 생성합니다 (데이터 없음)
+        /// </summary>
+        /// <typeparam name="T">아이템 타입</typeparam>
+        /// <returns>빈 DataTable (스키마만 있음)</returns>
+        /// <example>
+        /// <code>
+        /// // 스키마만 생성
+        /// DataTable table = DataTableExtensions.CreateSchema&lt;UserTvpItem&gt;();
+        /// 
+        /// // 나중에 데이터 추가
+        /// table.AddRows(users);
+        /// </code>
+        /// </example>
+        public static DataTable CreateSchema<T>() where T : class
+        {
+            var typeInfo = TvpTypeCache.GetTypeInfo<T>();
+            return typeInfo.CreateDataTable();
+        }
+
+        /// <summary>
+        /// 타입에서 DataTable 스키마만 생성합니다 (테이블 이름 지정)
+        /// </summary>
+        /// <typeparam name="T">아이템 타입</typeparam>
+        /// <param name="tableName">DataTable 이름</param>
+        /// <returns>빈 DataTable (스키마만 있음)</returns>
+        public static DataTable CreateSchema<T>(string tableName) where T : class
+        {
+            var table = CreateSchema<T>();
+            table.TableName = tableName;
+            return table;
+        }
+
+        #endregion
+
+        #region 유틸리티
+
+        /// <summary>
+        /// Dictionary 형태로 행 추가 (동적 사용)
+        /// </summary>
+        /// <param name="table">대상 DataTable</param>
+        /// <param name="values">컬럼명-값 Dictionary</param>
+        /// <returns>추가 성공 여부</returns>
+        public static bool AddRow(this DataTable table, Dictionary<string, object> values)
+        {
+            if (table == null)
+                throw new ArgumentNullException(nameof(table));
+
+            if (values == null || values.Count == 0)
+                return false;
+
+            var row = table.NewRow();
+
+            foreach (var kvp in values)
+            {
+                if (table.Columns.Contains(kvp.Key))
+                {
+                    row[kvp.Key] = kvp.Value ?? DBNull.Value;
+                }
+            }
+
+            table.Rows.Add(row);
+            return true;
+        }
+
+        /// <summary>
+        /// Dictionary 컬렉션으로 여러 행 추가 (동적 사용)
+        /// </summary>
+        /// <param name="table">대상 DataTable</param>
+        /// <param name="rows">컬럼명-값 Dictionary 컬렉션</param>
+        /// <returns>추가된 행 수</returns>
+        public static int AddRows(this DataTable table, IEnumerable<Dictionary<string, object>> rows)
+        {
+            if (table == null)
+                throw new ArgumentNullException(nameof(table));
+
+            if (rows == null)
+                return 0;
+
+            int count = 0;
+            foreach (var values in rows)
+            {
+                if (table.AddRow(values))
+                    count++;
+            }
+
+            return count;
+        }
+
+        #endregion
+
+        #region Private Methods
+
+        /// <summary>
+        /// DataTable 컬럼과 타입 프로퍼티 매핑 생성
+        /// </summary>
+        private static List<ColumnPropertyMapping> CreateColumnMapping(DataTable table, TvpTypeInfo typeInfo)
+        {
+            var mappings = new List<ColumnPropertyMapping>();
+
+            foreach (var columnInfo in typeInfo.Columns)
+            {
+                // 컬럼명으로 매칭 (대소문자 무시)
+                var columnIndex = FindColumnIndex(table, columnInfo.ColumnName);
+
+                if (columnIndex >= 0)
+                {
+                    mappings.Add(new ColumnPropertyMapping
+                    {
+                        ColumnIndex = columnIndex,
+                        Getter = columnInfo.Getter
+                    });
+                }
+            }
+
+            return mappings;
+        }
+
+        /// <summary>
+        /// DataTable에서 컬럼 인덱스 찾기 (대소문자 무시)
+        /// </summary>
+        private static int FindColumnIndex(DataTable table, string columnName)
+        {
+            for (int i = 0; i < table.Columns.Count; i++)
+            {
+                if (table.Columns[i].ColumnName.Equals(columnName, StringComparison.OrdinalIgnoreCase))
+                {
+                    return i;
+                }
+            }
+
+            return -1;
+        }
+
+        /// <summary>
+        /// 컬럼-프로퍼티 매핑 정보
+        /// </summary>
+        private class ColumnPropertyMapping
+        {
+            public int ColumnIndex { get; set; }
+            public Func<object, object> Getter { get; set; }
+        }
+
+        #endregion
+    }
+}

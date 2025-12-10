@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Data.Common;
@@ -138,7 +138,23 @@ namespace CoreDAL.ORM.Handlers
                     Scale = sqlParameter.Scale
                 };
 
-                if (!string.IsNullOrEmpty(sqlParameter.TypeName))
+                // TVP(Table-Valued Parameter) 처리
+                if (sqlParameter.SqlDbType == SqlDbType.Structured || !string.IsNullOrEmpty(sqlParameter.TypeName))
+                {
+                    param.SqlDbType = SqlDbType.Structured;
+                    param.TypeName = sqlParameter.TypeName;
+
+                    // DataTable이 아닌 경우 에러 메시지 제공
+                    if (value != null && !(value is DataTable) && value != DBNull.Value)
+                    {
+                        throw new ArgumentException(
+                            $"TVP 파라미터 '{sqlParameter.ParameterName}'에는 DataTable 타입의 값이 필요합니다. " +
+                            $"List<T>.ToDataTable() 확장 메서드를 사용하여 변환하세요. " +
+                            $"현재 타입: {value.GetType().Name}",
+                            nameof(value));
+                    }
+                }
+                else if (!string.IsNullOrEmpty(sqlParameter.TypeName))
                 {
                     param.TypeName = sqlParameter.TypeName;
                 }

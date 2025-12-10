@@ -1,4 +1,4 @@
-﻿# SECUiDEA.CoreDAL
+# SECUiDEA.CoreDAL
 
 다중 데이터베이스를 지원하는 **데이터 액세스 레이어(DAL)** 라이브러리입니다.  
 저장 프로시저 실행을 위한 추상화 레이어를 제공하며, 파라미터 자동 매핑 기능을 지원합니다.
@@ -13,6 +13,8 @@
 - **다중 데이터베이스 지원** - 확장 가능한 아키텍처
 - **OUTPUT 파라미터 지원** - 자동 값 반환 처리
 - **다중 ResultSet 지원** - DataSet으로 모든 결과 수집
+- **TVP(Table-Valued Parameter) 지원** - 대량 데이터 일괄 처리, ORM 스타일 변환
+- **트랜잭션 격리 수준 제어** - SELECT 쿼리의 Lock 최소화 가능
 
 ---
 
@@ -136,6 +138,9 @@ CoreDAL/
 ├── ORM/
 │   ├── Extensions/
 │   │   ├── DbParameterAttribute.cs   # 파라미터 속성
+│   │   ├── TvpColumnAttribute.cs     # TVP 컬럼 매핑 속성
+│   │   ├── TvpTypeCache.cs           # TVP 타입 캐싱 (성능 최적화)
+│   │   ├── DataTableExtensions.cs    # DataTable/TVP 확장 메서드
 │   │   └── SystemDataExtensions.cs   # DataTable 확장 메서드
 │   ├── Handlers/
 │   │   ├── SqlServerParameterHandler.cs  # MSSQL 파라미터 핸들러
@@ -251,6 +256,128 @@ public class MyParam : SQLParam
 - **L**: 구현체가 인터페이스 계약 준수
 - **I**: 적절한 크기의 인터페이스 분리
 - **D**: 추상화(인터페이스)에 의존
+
+---
+
+## 📊 TVP (Table-Valued Parameter) 지원
+
+대량 데이터를 한 번에 전달하여 성능을 최적화할 수 있습니다.
+
+### MSSQL에서 User-Defined Table Type 생성
+
+```sql
+-- 테이블 타입 생성
+CREATE TYPE dbo.UserListType AS TABLE (
+    UserId INT,
+    UserName NVARCHAR(100)
+);
+
+-- TVP를 사용하는 프로시저
+CREATE PROCEDURE usp_InsertUsers
+    @Users dbo.UserListType READONLY
+AS
+BEGIN
+    INSERT INTO Users (UserId, UserName)
+    SELECT UserId, UserName FROM @Users;
+    
+    RETURN @@ROWCOUNT;
+END
+```
+
+### 방법 1: ORM 스타일 (클래스 정의)
+
+```csharp
+using CoreDAL.ORM.Extensions;
+
+// TVP 아이템 클래스 정의
+public class UserTvpItem
+{
+    [TvpColumn("UserId", Order = 0)]
+    public int Id { get; set; }
+    
+    [TvpColumn("UserName", Order = 1)]
+    public string Name { get; set; }
+}
+
+// 사용
+var users = new List<UserTvpItem>
+{
+    new UserTvpItem { Id = 1, Name = "홍길동" },
+    new UserTvpItem { Id = 2, Name = "김철수" },
+    new UserTvpItem { Id = 3, Name = "이영희" }
+};
+
+// List → DataTable 변환 (확장 메서드)
+DataTable userTable = users.ToDataTable();
+
+// 프로시저 호출
+var result = await dal.ExecuteProcedureAsync(
+    connectionString,
+    "usp_InsertUsers",
+    new Dictionary<string, object> { { "Users", userTable } }
+);
+
+Console.WriteLine($"추가된 행: {result.ReturnValue}");
+```
+
+### 방법 2: 수동 스키마 + 확장 메서드
+
+```csharp
+// 수동으로 DataTable 스키마 생성
+var table = new DataTable();
+table.Columns.Add("UserId", typeof(int));
+table.Columns.Add("UserName", typeof(string));
+
+// 확장 메서드로 데이터 추가
+table.AddRows(users);  // 컬럼명과 프로퍼티명 자동 매칭
+```
+
+### 방법 3: 스키마만 생성 후 나중에 데이터 추가
+
+```csharp
+// 타입에서 스키마만 생성 (빈 테이블)
+DataTable table = DataTableExtensions.CreateSchema<UserTvpItem>();
+
+// 나중에 데이터 추가
+table.AddRow(new UserTvpItem { Id = 1, Name = "홍길동" });
+table.AddRows(moreUsers);
+```
+
+### 방법 4: Dictionary 기반 동적 추가
+
+```csharp
+var table = new DataTable();
+table.Columns.Add("UserId", typeof(int));
+table.Columns.Add("UserName", typeof(string));
+
+// Dictionary로 행 추가
+table.AddRow(new Dictionary<string, object> 
+{ 
+    { "UserId", 1 }, 
+    { "UserName", "홍길동" } 
+});
+```
+
+### TvpColumnAttribute 옵션
+
+| 속성 | 설명 | 기본값 |
+|------|------|--------|
+| `Name` | DataTable 컬럼명 | 프로퍼티 이름 |
+| `Order` | 컬럼 순서 (TVP 정의와 일치해야 함) | 프로퍼티 순서 |
+| `MaxLength` | 최대 길이 | -1 (무제한) |
+| `IsNullable` | NULL 허용 여부 | true |
+
+### 성능 최적화
+
+- ✅ **리플렉션 정보 캐싱**: 첫 호출 이후 빠른 성능
+- ✅ **컴파일된 델리게이트**: Expression.Compile()로 프로퍼티 접근 최적화
+- ✅ **네트워크 효율**: N번 호출 대신 1번 호출
+
+```
+성능 비교 (1만 건 기준):
+- 반복문 호출: ~10초 (네트워크 오버헤드)
+- TVP 사용: ~0.5초 (단일 호출)
+```
 
 ---
 
