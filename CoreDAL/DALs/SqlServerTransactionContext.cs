@@ -130,6 +130,47 @@ namespace CoreDAL.DALs
         }
 
         /// <summary>
+        /// 트랜잭션 진행 중 격리 수준 변경
+        /// </summary>
+        /// <param name="isolationLevel">변경할 격리 수준</param>
+        /// <remarks>
+        /// SQL Server에서는 트랜잭션 진행 중에도 격리 수준을 변경할 수 있습니다.
+        /// 변경된 격리 수준은 세션 레벨에서 적용되며, 이후 실행되는 모든 쿼리에 영향을 줍니다.
+        /// </remarks>
+        public void SetIsolationLevel(IsolationLevel isolationLevel)
+        {
+            ThrowIfDisposedOrCompleted();
+
+            string isolationLevelString = GetIsolationLevelString(isolationLevel);
+            
+            using (var command = new SqlCommand($"SET TRANSACTION ISOLATION LEVEL {isolationLevelString}", _connection, _transaction)
+            {
+                CommandTimeout = _timeout
+            })
+            {
+                command.ExecuteNonQuery();
+            }
+        }
+
+        /// <summary>
+        /// IsolationLevel enum을 SQL Server 격리 수준 문자열로 변환
+        /// </summary>
+        private static string GetIsolationLevelString(IsolationLevel isolationLevel)
+        {
+            return isolationLevel switch
+            {
+                IsolationLevel.ReadUncommitted => "READ UNCOMMITTED",
+                IsolationLevel.ReadCommitted => "READ COMMITTED",
+                IsolationLevel.RepeatableRead => "REPEATABLE READ",
+                IsolationLevel.Serializable => "SERIALIZABLE",
+                IsolationLevel.Snapshot => "SNAPSHOT",
+                IsolationLevel.Chaos => throw new ArgumentException("Chaos isolation level is not supported in SQL Server", nameof(isolationLevel)),
+                IsolationLevel.Unspecified => "READ COMMITTED", // 기본값
+                _ => throw new ArgumentException($"Unknown isolation level: {isolationLevel}", nameof(isolationLevel))
+            };
+        }
+
+        /// <summary>
         /// 리소스 해제
         /// </summary>
         public void Dispose()
