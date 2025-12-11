@@ -10,7 +10,7 @@ namespace CoreDAL.ORM.Extensions
     /// DataTable 관련 확장 메서드
     /// TVP(Table-Valued Parameter) 사용을 위한 DataTable 생성 및 데이터 추가 기능 제공
     /// </summary>
-    public static class DataTableExtensions
+    public static class DbTableExtensions
     {
         #region IEnumerable<T> → DataTable 변환
 

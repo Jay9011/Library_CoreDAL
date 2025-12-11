@@ -266,5 +266,15 @@ namespace CoreDAL.DALs
                 }
             }
         }
+
+        public ITransactionContext BeginTransaction(string connectionString, IsolationLevel isolationLevel = IsolationLevel.ReadCommitted)
+        {
+            throw new NotImplementedException();
+        }
+
+        public ITransactionContext BeginTransaction(IDatabaseSetup dbSetup, IsolationLevel isolationLevel = IsolationLevel.ReadCommitted)
+        {
+            throw new NotImplementedException();
+        }
     }
 }

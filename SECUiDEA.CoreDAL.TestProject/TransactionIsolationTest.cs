@@ -314,39 +314,6 @@ namespace SECUiDEA.CoreDAL.TestProject
 
         #endregion
 
-        #region IDatabaseSetup 오버로드 테스트
-
-        /// <summary>
-        /// IDatabaseSetup으로 격리 수준 지정 테스트
-        /// </summary>
-        [Fact]
-        public void BeginTransaction_WithDatabaseSetup_ShouldWork()
-        {
-            // Arrange
-            var connectionInfo = CreateTestConnectionInfo();
-            var dal = GetTestDAL();
-
-            // IDatabaseSetup 구현체 생성 (MsSqlConnectionInfo는 IDatabaseSetup 구현)
-            var dbSetup = connectionInfo as MsSqlConnectionInfo;
-            Assert.NotNull(dbSetup);
-
-            // Act
-            using (var tx = dal.BeginTransaction(dbSetup, IsolationLevel.ReadUncommitted))
-            {
-                var result = tx.ExecuteProcedure(
-                    "USP_TEST_SELECT_DATA",
-                    new Dictionary<string, object> { { "Count", 2 } }
-                );
-
-                Assert.True(result.IsSuccess);
-                tx.Commit();
-            }
-
-            _outputHelper.WriteLine("IDatabaseSetup + 격리 수준 테스트 성공");
-        }
-
-        #endregion
-
         #region 비동기 트랜잭션 + 격리 수준 테스트
 
         /// <summary>

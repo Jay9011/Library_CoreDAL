@@ -140,7 +140,7 @@ CoreDAL/
 │   │   ├── DbParameterAttribute.cs   # 파라미터 속성
 │   │   ├── TvpColumnAttribute.cs     # TVP 컬럼 매핑 속성
 │   │   ├── TvpTypeCache.cs           # TVP 타입 캐싱 (성능 최적화)
-│   │   ├── DataTableExtensions.cs    # DataTable/TVP 확장 메서드
+│   │   ├── DbTableExtensions.cs    # DataTable/TVP 확장 메서드
 │   │   └── SystemDataExtensions.cs   # DataTable 확장 메서드
 │   ├── Handlers/
 │   │   ├── SqlServerParameterHandler.cs  # MSSQL 파라미터 핸들러
@@ -336,7 +336,7 @@ table.AddRows(users);  // 컬럼명과 프로퍼티명 자동 매칭
 
 ```csharp
 // 타입에서 스키마만 생성 (빈 테이블)
-DataTable table = DataTableExtensions.CreateSchema<UserTvpItem>();
+DataTable table = DbTableExtensions.CreateSchema<UserTvpItem>();
 
 // 나중에 데이터 추가
 table.AddRow(new UserTvpItem { Id = 1, Name = "홍길동" });

@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Data;
-using System.Data.Common;
 using System.Linq;
 using CoreDAL.ORM.Extensions;
 using CoreDAL.ORM.Interfaces;
@@ -91,7 +90,7 @@ namespace CoreDAL.ORM.Handlers
             return parameters;
         }
 
-        public DbParameterCollection GetProcedureParameterCollection(IDbConnection connection, IDbCommand command)
+        public IReadOnlyList<IDbDataParameter> GetProcedureParameters(IDbConnection connection, IDbCommand command)
         {
             throw new NotImplementedException();
         }

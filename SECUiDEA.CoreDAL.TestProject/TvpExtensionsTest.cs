@@ -355,7 +355,7 @@ namespace SECUiDEA.CoreDAL.TestProject
         public void AddRow_SingleItem_ShouldAddOneRow()
         {
             // Arrange
-            var table = DataTableExtensions.CreateSchema<UserTvpItem>();
+            var table = DbTableExtensions.CreateSchema<UserTvpItem>();
             var item = new UserTvpItem { Id = 1, Name = "홍길동", Email = "hong@test.com" };
 
             // Act
@@ -408,7 +408,7 @@ namespace SECUiDEA.CoreDAL.TestProject
         public void CreateSchema_ShouldCreateEmptyTableWithCorrectSchema()
         {
             // Act
-            var table = DataTableExtensions.CreateSchema<UserTvpItem>();
+            var table = DbTableExtensions.CreateSchema<UserTvpItem>();
 
             // Assert
             Assert.Equal(3, table.Columns.Count);
@@ -427,7 +427,7 @@ namespace SECUiDEA.CoreDAL.TestProject
         public void CreateSchema_ThenAddRows_ShouldWork()
         {
             // Arrange
-            var table = DataTableExtensions.CreateSchema<UserTvpItem>("Users");
+            var table = DbTableExtensions.CreateSchema<UserTvpItem>("Users");
 
             // Act
             table.AddRow(new UserTvpItem { Id = 1, Name = "홍길동" });

@@ -47,7 +47,7 @@ namespace CoreDAL.ORM
                 return;
             }
 
-            var procedureParameters = _parameterHandler.GetProcedureParameterCollection(connection, command);
+            var procedureParameters = _parameterHandler.GetProcedureParameters(connection, command);
             if (procedureParameters == null || procedureParameters.Count == 0)
             {
                 return;
@@ -96,7 +96,7 @@ namespace CoreDAL.ORM
         /// <param name="parameters"><see cref="Dictionary{TKey,TValue}"/></param>
         public void AddParameters(IDbConnection connection, IDbCommand command, Dictionary<string, object> parameters)
         {
-            var procedureParameters = _parameterHandler.GetProcedureParameterCollection(connection, command);
+            var procedureParameters = _parameterHandler.GetProcedureParameters(connection, command);
             if (procedureParameters == null || procedureParameters.Count == 0)
             {
                 return;

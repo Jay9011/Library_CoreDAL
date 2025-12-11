@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Data;
-using System.Data.Common;
 using System.Linq;
 using System.Reflection;
 using CoreDAL.ORM.Extensions;
@@ -52,10 +51,10 @@ namespace CoreDAL.ORM.Handlers
         /// SqlParameter 배열을 복제 (캐시된 객체 재사용 방지)
         /// </summary>
         /// <param name="source">원본 파라미터 배열</param>
-        /// <returns>복제된 파라미터 배열</returns>
-        private static SqlParameter[] CloneParameters(SqlParameter[] source)
+        /// <returns>복제된 파라미터 배열 (IDbDataParameter로 반환)</returns>
+        private static IDbDataParameter[] CloneParameters(SqlParameter[] source)
         {
-            var cloned = new SqlParameter[source.Length];
+            var cloned = new IDbDataParameter[source.Length];
             for (int i = 0; i < source.Length; i++)
             {
                 var src = source[i];
@@ -69,11 +68,36 @@ namespace CoreDAL.ORM.Handlers
                     Precision = src.Precision,
                     Scale = src.Scale,
                     IsNullable = src.IsNullable,
-                    TypeName = src.TypeName,
+                    TypeName = NormalizeTvpTypeName(src.TypeName),
                     Value = DBNull.Value  // 값은 초기화
                 };
             }
             return cloned;
+        }
+
+        /// <summary>
+        /// TVP TypeName에서 데이터베이스 이름을 제거합니다.
+        /// SQL Server TVP는 "schema.typeName" 형식만 허용하며, 
+        /// "database.schema.typeName" 형식을 사용하면 에러가 발생합니다.
+        /// </summary>
+        /// <param name="typeName">원본 TypeName (database.schema.typeName 또는 schema.typeName)</param>
+        /// <returns>정규화된 TypeName (schema.typeName)</returns>
+        private static string NormalizeTvpTypeName(string typeName)
+        {
+            if (string.IsNullOrEmpty(typeName))
+                return typeName;
+
+            // TypeName이 "database.schema.typeName" 형식인 경우 데이터베이스 이름 제거
+            // SQL Server에서 SqlCommandBuilder.DeriveParameters()는 3파트 이름을 반환할 수 있음
+            var parts = typeName.Split('.');
+            if (parts.Length == 3)
+            {
+                // database.schema.typeName -> schema.typeName
+                return $"{parts[1]}.{parts[2]}";
+            }
+
+            // 이미 schema.typeName 형식이거나 typeName만 있는 경우 그대로 반환
+            return typeName;
         }
 
         /// <summary>
@@ -142,7 +166,8 @@ namespace CoreDAL.ORM.Handlers
                 if (sqlParameter.SqlDbType == SqlDbType.Structured || !string.IsNullOrEmpty(sqlParameter.TypeName))
                 {
                     param.SqlDbType = SqlDbType.Structured;
-                    param.TypeName = sqlParameter.TypeName;
+                    // SQL Server TVP는 "schema.typeName" 형식만 허용하므로 데이터베이스 이름 제거
+                    param.TypeName = NormalizeTvpTypeName(sqlParameter.TypeName);
 
                     // DataTable이 아닌 경우 에러 메시지 제공
                     if (value != null && !(value is DataTable) && value != DBNull.Value)
@@ -180,12 +205,12 @@ namespace CoreDAL.ORM.Handlers
         }
 
         /// <summary>
-        /// Procedure의 파라미터 컬렉션을 가져온다.
+        /// Procedure의 파라미터 정보를 가져온다.
         /// </summary>
         /// <param name="connection"><see cref="IDbConnection"/> - DBConnection</param>
         /// <param name="command"><see cref="IDbCommand"/> - DBCommand</param>
-        /// <returns> <see cref="DbParameterCollection"/> - 파라미터 컬렉션</returns>
-        public DbParameterCollection GetProcedureParameterCollection(IDbConnection connection, IDbCommand command)
+        /// <returns>파라미터 정보 목록 (읽기 전용)</returns>
+        public IReadOnlyList<IDbDataParameter> GetProcedureParameters(IDbConnection connection, IDbCommand command)
         {
             try
             {
@@ -196,55 +221,46 @@ namespace CoreDAL.ORM.Handlers
                     // 캐시에서 조회 시도
                     if (_parameterCache.TryGetValue(cacheKey, out SqlParameter[] cachedParameters))
                     {
-                        // 캐시된 파라미터 복제본을 새 Command에 추가
-                        var clonedParams = CloneParameters(cachedParameters);
-                        var tmpCommand = new SqlCommand(sqlCommand.CommandText, connection as SqlConnection)
-                        {
-                            CommandType = CommandType.StoredProcedure,
-                            Transaction = sqlCommand.Transaction
-                        };
-
-                        foreach (var param in clonedParams)
-                        {
-                            tmpCommand.Parameters.Add(param);
-                        }
-
-                        return tmpCommand.Parameters;
+                        // 캐시된 파라미터 복제본 반환 (IDbDataParameter로 캐스팅)
+                        return CloneParameters(cachedParameters);
                     }
 
                     // 캐시 미스: DB에서 파라미터 정보 조회
-                    var tmpCommandForDerive = new SqlCommand(sqlCommand.CommandText, connection as SqlConnection)
+                    using (var tmpCommandForDerive = new SqlCommand(sqlCommand.CommandText, connection as SqlConnection)
                     {
                         CommandType = CommandType.StoredProcedure,
                         Transaction = sqlCommand.Transaction
-                    };
-
-                    // 프로시저의 파라미터 정보를 가져옴
-                    SqlCommandBuilder.DeriveParameters(tmpCommandForDerive);
-
-                    // 캐시에 저장 (파라미터 배열로 변환)
-                    var parametersToCache = new SqlParameter[tmpCommandForDerive.Parameters.Count];
-                    for (int i = 0; i < tmpCommandForDerive.Parameters.Count; i++)
+                    })
                     {
-                        var src = tmpCommandForDerive.Parameters[i];
-                        parametersToCache[i] = new SqlParameter
+                        // 프로시저의 파라미터 정보를 가져옴
+                        SqlCommandBuilder.DeriveParameters(tmpCommandForDerive);
+
+                        // 파라미터 배열 생성 (TVP TypeName 정규화 포함)
+                        var parametersToCache = new SqlParameter[tmpCommandForDerive.Parameters.Count];
+                        for (int i = 0; i < tmpCommandForDerive.Parameters.Count; i++)
                         {
-                            ParameterName = src.ParameterName,
-                            SqlDbType = src.SqlDbType,
-                            DbType = src.DbType,
-                            Direction = src.Direction,
-                            Size = src.Size,
-                            Precision = src.Precision,
-                            Scale = src.Scale,
-                            IsNullable = src.IsNullable,
-                            TypeName = src.TypeName,
-                            Value = DBNull.Value
-                        };
+                            var src = tmpCommandForDerive.Parameters[i];
+                            parametersToCache[i] = new SqlParameter
+                            {
+                                ParameterName = src.ParameterName,
+                                SqlDbType = src.SqlDbType,
+                                DbType = src.DbType,
+                                Direction = src.Direction,
+                                Size = src.Size,
+                                Precision = src.Precision,
+                                Scale = src.Scale,
+                                IsNullable = src.IsNullable,
+                                TypeName = NormalizeTvpTypeName(src.TypeName),  // TVP TypeName 정규화
+                                Value = DBNull.Value
+                            };
+                        }
+
+                        // 캐시에 저장
+                        _parameterCache.Set(cacheKey, parametersToCache, _cacheEntryOptions);
+
+                        // 복제본 반환 (캐시된 객체 직접 반환 방지)
+                        return CloneParameters(parametersToCache);
                     }
-
-                    _parameterCache.Set(cacheKey, parametersToCache, _cacheEntryOptions);
-
-                    return tmpCommandForDerive.Parameters;
                 }
             }
             catch (Exception e)
@@ -252,7 +268,7 @@ namespace CoreDAL.ORM.Handlers
                 throw new Exception("Failed to get procedure parameter names.", e);
             }
 
-            return null;
+            return Array.Empty<IDbDataParameter>();
         }
 
         /// <summary>

@@ -1,6 +1,5 @@
 ﻿using System.Collections.Generic;
 using System.Data;
-using System.Data.Common;
 
 namespace CoreDAL.ORM.Interfaces
 {
@@ -34,12 +33,12 @@ namespace CoreDAL.ORM.Interfaces
         /// <returns><see cref="IDbDataParameter"/></returns>
         IDbDataParameter CreateReturnParameter();
         /// <summary>
-        /// Procedure의 파라미터 컬렉션을 가져온다.
+        /// Procedure의 파라미터 정보를 가져온다.
         /// </summary>
         /// <param name="connection"><see cref="IDbConnection"/> - DBConnection</param>
         /// <param name="command"><see cref="IDbCommand"/> - DBCommand</param>
-        /// <returns> <see cref="DbParameterCollection"/> - 파라미터 컬렉션</returns>
-        DbParameterCollection GetProcedureParameterCollection(IDbConnection connection, IDbCommand command);
+        /// <returns>파라미터 정보 목록 (읽기 전용)</returns>
+        IReadOnlyList<IDbDataParameter> GetProcedureParameters(IDbConnection connection, IDbCommand command);
         /// <summary>
         /// Output Parameter 설정
         /// </summary>
