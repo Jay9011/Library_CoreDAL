@@ -142,7 +142,7 @@ namespace CoreDAL.DALs
             ThrowIfDisposedOrCompleted();
 
             string isolationLevelString = GetIsolationLevelString(isolationLevel);
-            
+
             using (var command = new SqlCommand($"SET TRANSACTION ISOLATION LEVEL {isolationLevelString}", _connection, _transaction)
             {
                 CommandTimeout = _timeout
@@ -157,17 +157,25 @@ namespace CoreDAL.DALs
         /// </summary>
         private static string GetIsolationLevelString(IsolationLevel isolationLevel)
         {
-            return isolationLevel switch
+            switch (isolationLevel)
             {
-                IsolationLevel.ReadUncommitted => "READ UNCOMMITTED",
-                IsolationLevel.ReadCommitted => "READ COMMITTED",
-                IsolationLevel.RepeatableRead => "REPEATABLE READ",
-                IsolationLevel.Serializable => "SERIALIZABLE",
-                IsolationLevel.Snapshot => "SNAPSHOT",
-                IsolationLevel.Chaos => throw new ArgumentException("Chaos isolation level is not supported in SQL Server", nameof(isolationLevel)),
-                IsolationLevel.Unspecified => "READ COMMITTED", // 기본값
-                _ => throw new ArgumentException($"Unknown isolation level: {isolationLevel}", nameof(isolationLevel))
-            };
+                case IsolationLevel.ReadUncommitted:
+                    return "READ UNCOMMITTED";
+                case IsolationLevel.ReadCommitted:
+                    return "READ COMMITTED";
+                case IsolationLevel.RepeatableRead:
+                    return "REPEATABLE READ";
+                case IsolationLevel.Serializable:
+                    return "SERIALIZABLE";
+                case IsolationLevel.Snapshot:
+                    return "SNAPSHOT";
+                case IsolationLevel.Chaos:
+                    throw new ArgumentException("Chaos isolation level is not supported in SQL Server", nameof(isolationLevel));
+                case IsolationLevel.Unspecified:
+                    return "READ COMMITTED";
+                default:
+                    throw new ArgumentException($"Unknown isolation level: {isolationLevel}", nameof(isolationLevel));
+            }
         }
 
         /// <summary>

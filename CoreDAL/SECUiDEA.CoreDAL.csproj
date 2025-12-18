@@ -3,7 +3,7 @@
   <PropertyGroup>
     <TargetFramework>netstandard2.0</TargetFramework>
     <Title>$(AssemblyName)</Title>
-    <Version>5.2.1</Version>
+    <Version>5.2.2</Version>
     <Authors>Jay9011</Authors>
     <Company>SECUiDEA</Company>
     <Description>DataBase에 접근해서 쿼리(프로시저)를 실행하고 결과를 가져오기 위한 모듈.
