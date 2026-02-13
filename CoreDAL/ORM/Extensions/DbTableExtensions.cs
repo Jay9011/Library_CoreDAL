@@ -249,6 +249,78 @@ namespace CoreDAL.ORM.Extensions
 
         #endregion
 
+        #region Internal - 런타임 IEnumerable → DataTable 자동 변환
+
+        /// <summary>
+        /// 런타임에 IEnumerable 타입의 객체를 DataTable로 변환합니다.
+        /// TVP 파라미터 자동 변환 시 내부적으로 사용됩니다.
+        /// </summary>
+        /// <param name="enumerable">IEnumerable 객체 (List&lt;T&gt;, T[] 등)</param>
+        /// <returns>변환된 DataTable</returns>
+        /// <exception cref="ArgumentNullException">enumerable이 null인 경우</exception>
+        /// <exception cref="InvalidOperationException">요소 타입을 감지할 수 없거나 유효한 컬럼이 없는 경우</exception>
+        internal static DataTable ConvertToDataTable(System.Collections.IEnumerable enumerable)
+        {
+            if (enumerable == null)
+                throw new ArgumentNullException(nameof(enumerable));
+
+            var elementType = GetEnumerableElementType(enumerable.GetType());
+            if (elementType == null)
+                throw new InvalidOperationException(
+                    $"IEnumerable의 요소 타입을 감지할 수 없습니다. " +
+                    $"IEnumerable<T> 형태를 사용하세요. " +
+                    $"현재 타입: {enumerable.GetType().Name}");
+
+            var typeInfo = TvpTypeCache.GetTypeInfo(elementType);
+            if (typeInfo.Columns.Count == 0)
+                throw new InvalidOperationException(
+                    $"TVP 변환 대상 타입 '{elementType.Name}'에 유효한 컬럼 정보가 없습니다. " +
+                    $"[TvpColumn] 어트리뷰트를 사용하거나 public 프로퍼티가 있는 클래스를 사용하세요.");
+
+            var table = typeInfo.CreateDataTable();
+
+            foreach (var item in enumerable)
+            {
+                if (item != null)
+                {
+                    var values = typeInfo.GetValues(item);
+                    table.Rows.Add(values);
+                }
+            }
+
+            return table;
+        }
+
+        /// <summary>
+        /// IEnumerable&lt;T&gt;에서 요소 타입 T를 추출합니다.
+        /// </summary>
+        /// <param name="type">IEnumerable을 구현한 타입</param>
+        /// <returns>요소 타입 (감지 불가 시 null)</returns>
+        private static Type GetEnumerableElementType(Type type)
+        {
+            // IEnumerable<T> 인터페이스에서 T 추출
+            foreach (var iface in type.GetInterfaces())
+            {
+                if (iface.IsGenericType && iface.GetGenericTypeDefinition() == typeof(IEnumerable<>))
+                {
+                    var elementType = iface.GetGenericArguments()[0];
+                    // string의 IEnumerable<char> 등 원시 타입은 제외
+                    if (elementType != typeof(char))
+                        return elementType;
+                }
+            }
+
+            // 타입 자체가 IEnumerable<T>인 경우
+            if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(IEnumerable<>))
+            {
+                return type.GetGenericArguments()[0];
+            }
+
+            return null;
+        }
+
+        #endregion
+
         #region Private Methods
 
         /// <summary>

@@ -169,14 +169,22 @@ namespace CoreDAL.ORM.Handlers
                     // SQL Server TVP는 "schema.typeName" 형식만 허용하므로 데이터베이스 이름 제거
                     param.TypeName = NormalizeTvpTypeName(sqlParameter.TypeName);
 
-                    // DataTable이 아닌 경우 에러 메시지 제공
+                    // DataTable이 아닌 경우 IEnumerable<T> → DataTable 자동 변환 시도
                     if (value != null && !(value is DataTable) && value != DBNull.Value)
                     {
-                        throw new ArgumentException(
-                            $"TVP 파라미터 '{sqlParameter.ParameterName}'에는 DataTable 타입의 값이 필요합니다. " +
-                            $"List<T>.ToDataTable() 확장 메서드를 사용하여 변환하세요. " +
-                            $"현재 타입: {value.GetType().Name}",
-                            nameof(value));
+                        if (value is System.Collections.IEnumerable enumerable && !(value is string))
+                        {
+                            // IEnumerable<T> → DataTable 자동 변환
+                            param.Value = DbTableExtensions.ConvertToDataTable(enumerable);
+                        }
+                        else
+                        {
+                            throw new ArgumentException(
+                                $"TVP 파라미터 '{sqlParameter.ParameterName}'에는 DataTable 또는 IEnumerable<T> 타입의 값이 필요합니다. " +
+                                $"List<T>.ToDataTable() 확장 메서드를 사용하거나 IEnumerable<T>를 직접 전달하세요. " +
+                                $"현재 타입: {value.GetType().Name}",
+                                nameof(value));
+                        }
                     }
                 }
                 else if (!string.IsNullOrEmpty(sqlParameter.TypeName))

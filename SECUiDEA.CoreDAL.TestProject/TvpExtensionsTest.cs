@@ -1,6 +1,8 @@
 using System.Data;
 using CoreDAL.ORM;
 using CoreDAL.ORM.Extensions;
+using CoreDAL.ORM.Handlers;
+using Microsoft.Data.SqlClient;
 using Xunit.Abstractions;
 
 namespace SECUiDEA.CoreDAL.TestProject
@@ -550,6 +552,205 @@ namespace SECUiDEA.CoreDAL.TestProject
 
             // Act & Assert
             Assert.Throws<ArgumentNullException>(() => table.AddRows(items));
+        }
+
+        #endregion
+
+        #region TVP 자동 변환 테스트 (CreateParameter에서 IEnumerable<T> → DataTable)
+
+        /// <summary>
+        /// CreateParameter에 List&lt;T&gt;를 전달하면 DataTable로 자동 변환되는지 테스트
+        /// </summary>
+        [Fact]
+        public void CreateParameter_WithIEnumerableForTvp_ShouldAutoConvertToDataTable()
+        {
+            // Arrange
+            var handler = new SqlServerParameterHandler();
+            var procParam = new SqlParameter("@IDList", SqlDbType.Structured)
+            {
+                TypeName = "dbo.UserTvpType",
+                Direction = ParameterDirection.Input
+            };
+
+            var items = new List<UserTvpItem>
+            {
+                new UserTvpItem { Id = 1, Name = "홍길동", Email = "hong@test.com" },
+                new UserTvpItem { Id = 2, Name = "김철수", Email = "kim@test.com" },
+                new UserTvpItem { Id = 3, Name = "이영희" }
+            };
+
+            // Act
+            var result = handler.CreateParameter(procParam, items) as SqlParameter;
+
+            // Assert
+            Assert.NotNull(result);
+            Assert.Equal(SqlDbType.Structured, result.SqlDbType);
+            Assert.Equal("dbo.UserTvpType", result.TypeName);
+            Assert.IsType<DataTable>(result.Value);
+
+            var table = result.Value as DataTable;
+            Assert.Equal(3, table.Columns.Count);
+            Assert.Equal("UserId", table.Columns[0].ColumnName);
+            Assert.Equal("UserName", table.Columns[1].ColumnName);
+            Assert.Equal("Email", table.Columns[2].ColumnName);
+            Assert.Equal(3, table.Rows.Count);
+            Assert.Equal(1, table.Rows[0]["UserId"]);
+            Assert.Equal("홍길동", table.Rows[0]["UserName"]);
+
+            _outputHelper.WriteLine($"TVP 자동 변환 성공: List<UserTvpItem>({items.Count}건) → DataTable({table.Rows.Count}행, {table.Columns.Count}컬럼)");
+        }
+
+        /// <summary>
+        /// CreateParameter에 배열(T[])을 전달해도 DataTable로 자동 변환되는지 테스트
+        /// </summary>
+        [Fact]
+        public void CreateParameter_WithArrayForTvp_ShouldAutoConvertToDataTable()
+        {
+            // Arrange
+            var handler = new SqlServerParameterHandler();
+            var procParam = new SqlParameter("@IDList", SqlDbType.Structured)
+            {
+                TypeName = "dbo.UserTvpType",
+                Direction = ParameterDirection.Input
+            };
+
+            var items = new[]
+            {
+                new UserTvpItem { Id = 1, Name = "테스트1" },
+                new UserTvpItem { Id = 2, Name = "테스트2" }
+            };
+
+            // Act
+            var result = handler.CreateParameter(procParam, items) as SqlParameter;
+
+            // Assert
+            Assert.NotNull(result);
+            Assert.IsType<DataTable>(result.Value);
+
+            var table = result.Value as DataTable;
+            Assert.Equal(2, table.Rows.Count);
+            Assert.Equal(1, table.Rows[0]["UserId"]);
+            Assert.Equal("테스트2", table.Rows[1]["UserName"]);
+
+            _outputHelper.WriteLine($"TVP 배열 자동 변환 성공: UserTvpItem[]({items.Length}건) → DataTable({table.Rows.Count}행)");
+        }
+
+        /// <summary>
+        /// CreateParameter에 DataTable을 직접 전달하면 그대로 사용되는지 테스트 (기존 동작 보장)
+        /// </summary>
+        [Fact]
+        public void CreateParameter_WithDataTableForTvp_ShouldUseAsIs()
+        {
+            // Arrange
+            var handler = new SqlServerParameterHandler();
+            var procParam = new SqlParameter("@IDList", SqlDbType.Structured)
+            {
+                TypeName = "dbo.IntListType",
+                Direction = ParameterDirection.Input
+            };
+
+            var table = new DataTable();
+            table.Columns.Add("Value", typeof(int));
+            table.Rows.Add(1);
+            table.Rows.Add(2);
+            table.Rows.Add(3);
+
+            // Act
+            var result = handler.CreateParameter(procParam, table) as SqlParameter;
+
+            // Assert
+            Assert.NotNull(result);
+            Assert.Equal(SqlDbType.Structured, result.SqlDbType);
+            Assert.Same(table, result.Value); // 동일한 DataTable 인스턴스여야 함
+
+            _outputHelper.WriteLine("DataTable 직접 전달 테스트 성공: 기존 동작과 동일하게 동작");
+        }
+
+        /// <summary>
+        /// CreateParameter에 string 등 지원하지 않는 타입을 전달하면 예외 발생하는지 테스트
+        /// </summary>
+        [Fact]
+        public void CreateParameter_WithInvalidTypeForTvp_ShouldThrowException()
+        {
+            // Arrange
+            var handler = new SqlServerParameterHandler();
+            var procParam = new SqlParameter("@IDList", SqlDbType.Structured)
+            {
+                TypeName = "dbo.IntListType",
+                Direction = ParameterDirection.Input
+            };
+
+            // Act & Assert - string은 IEnumerable이지만 TVP로 변환 불가
+            var ex = Assert.Throws<ArgumentException>(() => handler.CreateParameter(procParam, "invalid_value"));
+            Assert.Contains("DataTable 또는 IEnumerable<T>", ex.Message);
+
+            _outputHelper.WriteLine($"잘못된 타입 예외 테스트 성공: {ex.Message}");
+        }
+
+        /// <summary>
+        /// [DbParameter]와 [TvpColumn] 혼합 엔티티의 List를 TVP로 자동 변환 테스트
+        /// TvpColumn이 있는 프로퍼티만 DataTable 컬럼으로 포함되는지 확인
+        /// </summary>
+        [Fact]
+        public void CreateParameter_WithMixedAttributeEntity_ShouldOnlyIncludeTvpColumns()
+        {
+            // Arrange
+            var handler = new SqlServerParameterHandler();
+            var procParam = new SqlParameter("@UserList", SqlDbType.Structured)
+            {
+                TypeName = "dbo.UserListType",
+                Direction = ParameterDirection.Input
+            };
+
+            var users = new List<UserEntity>
+            {
+                new UserEntity { SEQ = 1, ID = "hong", PW = "pass1", NAME = "홍길동" },
+                new UserEntity { SEQ = 2, ID = "kim", PW = "pass2", NAME = "김철수" }
+            };
+
+            // Act
+            var result = handler.CreateParameter(procParam, users) as SqlParameter;
+
+            // Assert
+            Assert.NotNull(result);
+            Assert.IsType<DataTable>(result.Value);
+
+            var table = result.Value as DataTable;
+            // TvpColumn이 있는 ID, NAME만 포함되어야 함 (SEQ, PW는 DbParameter 전용)
+            Assert.Equal(2, table.Columns.Count);
+            Assert.Equal("ID", table.Columns[0].ColumnName);
+            Assert.Equal("NAME", table.Columns[1].ColumnName);
+
+            Assert.Equal(2, table.Rows.Count);
+            Assert.Equal("hong", table.Rows[0]["ID"]);
+            Assert.Equal("홍길동", table.Rows[0]["NAME"]);
+
+            _outputHelper.WriteLine($"혼합 Attribute TVP 자동 변환 성공: List<UserEntity>({users.Count}건) → DataTable({table.Rows.Count}행, 컬럼: {string.Join(", ", table.Columns.Cast<DataColumn>().Select(c => c.ColumnName))})");
+        }
+
+        /// <summary>
+        /// null 값은 기존처럼 DBNull.Value로 처리되는지 테스트
+        /// </summary>
+        [Fact]
+        public void CreateParameter_WithNullValueForTvp_ShouldSetDBNullValue()
+        {
+            // Arrange
+            var handler = new SqlServerParameterHandler();
+            var procParam = new SqlParameter("@IDList", SqlDbType.Structured)
+            {
+                TypeName = "dbo.IntListType",
+                Direction = ParameterDirection.Input
+            };
+
+            // Act
+            var result = handler.CreateParameter(procParam, null) as SqlParameter;
+
+            // Assert
+            Assert.NotNull(result);
+            Assert.Equal(SqlDbType.Structured, result.SqlDbType);
+            Assert.Equal(DBNull.Value, result.Value);
+
+            _outputHelper.WriteLine("TVP null 값 테스트 성공: DBNull.Value로 처리됨");
         }
 
         #endregion
